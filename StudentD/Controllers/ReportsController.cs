@@ -1,7 +1,9 @@
 ﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging;
 using ShoeShop.Services.Interfaces;
 using System;
+using System.Threading.Tasks;
 
 namespace ShoeShop.Controllers
 {
@@ -9,35 +11,65 @@ namespace ShoeShop.Controllers
     public class ReportsController : Controller
     {
         private readonly IReportService _reportService;
+        private readonly ILogger<ReportsController> _logger;
 
-        public ReportsController(IReportService reportService)
+        public ReportsController(IReportService reportService, ILogger<ReportsController> logger)
         {
             _reportService = reportService;
+            _logger = logger;
         }
 
-        public IActionResult Index()
+        public async Task<IActionResult> Index()
         {
-            var report = _reportService.GetInventoryReport();
+            var report = await _reportService.GetInventoryReportAsync();
             return View(report);
         }
 
         [HttpPost]
-        public IActionResult Filter(DateTime from, DateTime to)
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> Filter(DateTime from, DateTime to)
         {
-            var result = _reportService.FilterInventoryReport(from, to);
-            return View("Index", result);
+            try
+            {
+                var result = await _reportService.FilterInventoryReportAsync(from, to);
+                return View("Index", result);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error filtering report");
+                TempData["Error"] = "Failed to filter report.";
+                return RedirectToAction("Index");
+            }
         }
 
-        public IActionResult ExportToPdf()
+        public async Task<IActionResult> ExportToPdf()
         {
-            var pdf = _reportService.ExportToPdf();
-            return File(pdf, "application/pdf", "InventoryReport.pdf");
+            try
+            {
+                var pdf = await _reportService.ExportToPdfAsync();
+                return File(pdf, "application/pdf", "InventoryReport.pdf");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error exporting report to PDF");
+                TempData["Error"] = "Failed to export PDF.";
+                return RedirectToAction("Index");
+            }
         }
 
-        public IActionResult ExportToExcel()
+        public async Task<IActionResult> ExportToExcel()
         {
-            var excel = _reportService.ExportToExcel();
-            return File(excel, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "InventoryReport.xlsx");
+            try
+            {
+                var excel = await _reportService.ExportToExcelAsync();
+                return File(excel, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "InventoryReport.xlsx");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error exporting report to Excel");
+                TempData["Error"] = "Failed to export Excel.";
+                return RedirectToAction("Index");
+            }
         }
     }
 }
