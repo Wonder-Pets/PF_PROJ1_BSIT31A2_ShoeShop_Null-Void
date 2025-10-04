@@ -1,7 +1,7 @@
 ﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Extensions.Logging;
-using System;
+using ShoeShop.Services.DTOs;
+using ShoeShop.Services.Interfaces;
 using System.Threading.Tasks;
 
 namespace ShoeShop.Web.Controllers
@@ -9,71 +9,54 @@ namespace ShoeShop.Web.Controllers
     [Authorize(Roles = "Admin,Manager")]
     public class PurchaseOrderController : Controller
     {
-        private readonly IPurchaseOrderService _poService;
-        private readonly ILogger<PurchaseOrderController> _logger;
+        private readonly IPurchaseOrderService _orderService;
 
-        public PurchaseOrderController(IPurchaseOrderService poService, ILogger<PurchaseOrderController> logger)
+        public PurchaseOrderController(IPurchaseOrderService orderService)
         {
-            _poService = poService;
-            _logger = logger;
+            _orderService = orderService;
         }
 
-        // GET: /PurchaseOrder
-        public async Task<IActionResult> Index(string status = null, int page = 1)
+        // Displays all purchase orders
+        public async Task<IActionResult> Index()
         {
-            var model = await _poService.GetPagedPurchaseOrdersAsync(status, page, 20);
-            return View(model);
+            var orders = await _orderService.GetAllOrdersAsync();
+            return View(orders);
         }
 
-        // GET: /PurchaseOrder/Create
-        public async Task<IActionResult> Create()
+        // Shows the form to create a new purchase order
+        public IActionResult Create()
         {
-            var vm = await _poService.GetCreatePurchaseOrderViewModelAsync();
-            return View(vm);
+            return View();
         }
 
-        // POST: /PurchaseOrder/Create
+        // Handles creation of a new purchase order
         [HttpPost]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Create(CreatePurchaseOrderDto dto)
         {
-            if (!ModelState.IsValid) return View(dto);
-
-            try
-            {
-                PurchaseOrderDto po = await _poService.CreatePurchaseOrderAsync(dto, User.Identity.Name);
-                TempData["Success"] = $"Purchase Order {po.OrderNumber} created.";
-                return RedirectToAction(nameof(Details), new { id = po.Id });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Create PO failed");
-                ModelState.AddModelError("", "Error sa pag-create ng purchase order.");
+            if (!ModelState.IsValid)
                 return View(dto);
-            }
+
+            await _orderService.CreateOrderAsync(dto);
+            TempData["Success"] = "Purchase order successfully created.";
+            return RedirectToAction(nameof(Index));
         }
 
-        // GET: /PurchaseOrder/Details/{id}
+        // Displays the details of a specific purchase order
         public async Task<IActionResult> Details(int id)
         {
-            var model = await _poService.GetPurchaseOrderByIdAsync(id);
-            if (model == null) return NotFound();
-            return View(model);
+            var order = await _orderService.GetOrderByIdAsync(id);
+            if (order == null) return NotFound();
+            return View(order);
         }
 
-        // POST: /PurchaseOrder/Confirm/{id}
+        // Confirms or updates order status
         [HttpPost]
-        [ValidateAntiForgeryToken]
-        public async Task<IActionResult> Confirm(int id)
+        public async Task<IActionResult> UpdateStatus(int id, string status)
         {
-            try
-            {
-                await _poService.ConfirmPurchaseOrderAsync(id, User.Identity.Name);
-                TempData["Success"] = "PO confirmed.";
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Confirm PO failed for {Id}", id);
-                TempData["Error"] = "Hindi ma-confirm ang PO.";
-            }
-            return RedirectToAction
+            await _orderService.UpdateOrderStatusAsync(id, status);
+            TempData["Success"] = "Order status updated.";
+            return RedirectToAction(nameof(Details), new { id });
+        }
+    }
+}

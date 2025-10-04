@@ -1,6 +1,6 @@
 ﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using System;
+using ShoeShop.Services.Interfaces;
 using System.Threading.Tasks;
 
 namespace ShoeShop.Web.Controllers
@@ -15,23 +15,19 @@ namespace ShoeShop.Web.Controllers
             _reportService = reportService;
         }
 
-        // GET: /Reports
-        public IActionResult Index()
+        // Displays inventory reports
+        public async Task<IActionResult> Index()
         {
-            return View();
+            var report = await _reportService.GetInventoryReportAsync();
+            return View(report);
         }
 
-        // POST or GET: /Reports/Inventory (filter parameters via ReportFilterDto)
+        // Exports report data to Excel or PDF
         [HttpGet]
-        public async Task<IActionResult> Inventory(ReportFilterDto filter)
+        public async Task<IActionResult> Export(string type)
         {
-            var model = await _reportService.GenerateInventoryReportAsync(filter);
-            return View("Inventory", model);
+            var file = await _reportService.ExportReportAsync(type);
+            return File(file.Content, file.ContentType, file.FileName);
         }
-
-        // Export CSV (GET)
-        [HttpGet]
-        public async Task<IActionResult> ExportInventoryCsv(ReportFilterDto filter)
-        {
-            string csv = await _reportService.ExportInventoryCsvAsync(filter);
-            var bytes = System.Text.Encoding.UTF8.GetBytes(csv);
+    }
+}

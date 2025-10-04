@@ -1,7 +1,7 @@
 ﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Extensions.Logging;
-using System;
+using ShoeShop.Services.DTOs;
+using ShoeShop.Services.Interfaces;
 using System.Threading.Tasks;
 
 namespace ShoeShop.Web.Controllers
@@ -10,33 +10,46 @@ namespace ShoeShop.Web.Controllers
     public class PullOutController : Controller
     {
         private readonly IPullOutService _pullOutService;
-        private readonly ILogger<PullOutController> _logger;
 
-        public PullOutController(IPullOutService pullOutService, ILogger<PullOutController> logger)
+        public PullOutController(IPullOutService pullOutService)
         {
             _pullOutService = pullOutService;
-            _logger = logger;
         }
 
-        // GET: /PullOut
-        public async Task<IActionResult> Index(string status = "Pending", int page = 1)
+        // Displays all pull-out requests
+        public async Task<IActionResult> Index()
         {
-            var model = await _pullOutService.GetPagedPullOutsAsync(status, page, 20);
-            return View(model);
+            var pullOuts = await _pullOutService.GetAllPullOutsAsync();
+            return View(pullOuts);
         }
 
-        // GET: /PullOut/Create
+        // Shows form to request a pull-out
         public IActionResult Create()
         {
-            return View(new CreatePullOutDto());
+            return View();
         }
 
-        // POST: /PullOut/Create
+        // Handles pull-out request submission
         [HttpPost]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Create(CreatePullOutDto dto)
         {
-            if (!ModelState.IsValid) return View(dto);
+            if (!ModelState.IsValid)
+                return View(dto);
 
-            try
-            {
+            await _pullOutService.CreatePullOutRequestAsync(dto);
+            TempData["Success"] = "Pull-out request successfully created.";
+            return RedirectToAction(nameof(Index));
+        }
+
+        // Approves or rejects a pull-out request
+        [HttpPost]
+        [Authorize(Roles = "Manager,Admin")]
+        public async Task<IActionResult> UpdateStatus(int id, string status)
+        {
+            await _pullOutService.UpdatePullOutStatusAsync(id, status);
+            TempData["Success"] = $"Pull-out request marked as {status}.";
+            return RedirectToAction(nameof(Index));
+        }
+    }
+}
