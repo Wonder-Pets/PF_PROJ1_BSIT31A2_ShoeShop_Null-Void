@@ -1,7 +1,8 @@
 ﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging;
 using ShoeShop.Services.Interfaces;
-using System;
+using System.Threading.Tasks;
 
 namespace ShoeShop.Controllers
 {
@@ -9,30 +10,48 @@ namespace ShoeShop.Controllers
     public class DashboardController : Controller
     {
         private readonly IReportService _reportService;
+        private readonly ILogger<DashboardController> _logger;
 
-        public DashboardController(IReportService reportService)
+        public DashboardController(IReportService reportService, ILogger<DashboardController> logger)
         {
             _reportService = reportService;
+            _logger = logger;
         }
 
-        public IActionResult Index()
+        public async Task<IActionResult> Index()
         {
-            var report = _reportService.GetDashboardReport();
+            var report = await _reportService.GetDashboardReportAsync();
             return View(report);
         }
 
         [HttpGet]
-        public IActionResult GetLowStock()
+        public async Task<IActionResult> GetLowStock()
         {
-            var lowStock = _reportService.GetLowStockItems();
-            return Json(lowStock);
+            try
+            {
+                var lowStock = await _reportService.GetLowStockItemsAsync();
+                return Json(lowStock);
+            }
+            catch (System.Exception ex)
+            {
+                _logger.LogError(ex, "Error fetching low stock items");
+                return StatusCode(500, "Error retrieving data");
+            }
         }
 
         [HttpGet]
-        public IActionResult GetRecentActivity()
+        public async Task<IActionResult> GetRecentActivity()
         {
-            var logs = _reportService.GetRecentInventoryActivity();
-            return Json(logs);
+            try
+            {
+                var logs = await _reportService.GetRecentInventoryActivityAsync();
+                return Json(logs);
+            }
+            catch (System.Exception ex)
+            {
+                _logger.LogError(ex, "Error fetching recent activity logs");
+                return StatusCode(500, "Error retrieving data");
+            }
         }
     }
 }
