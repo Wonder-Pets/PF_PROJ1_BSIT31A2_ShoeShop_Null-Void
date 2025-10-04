@@ -1,6 +1,7 @@
 ﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging;
 using ShoeShop.Models;
 using ShoeShop.Services.DTOs;
 using System.Threading.Tasks;
@@ -11,11 +12,13 @@ namespace ShoeShop.Controllers
     {
         private readonly SignInManager<ApplicationUser> _signInManager;
         private readonly UserManager<ApplicationUser> _userManager;
+        private readonly ILogger<AccountController> _logger;
 
-        public AccountController(SignInManager<ApplicationUser> signInManager, UserManager<ApplicationUser> userManager)
+        public AccountController(SignInManager<ApplicationUser> signInManager, UserManager<ApplicationUser> userManager, ILogger<AccountController> logger)
         {
             _signInManager = signInManager;
             _userManager = userManager;
+            _logger = logger;
         }
 
         public IActionResult Login() => View();
@@ -59,5 +62,20 @@ namespace ShoeShop.Controllers
                 LastName = dto.LastName
             };
 
+            var result = await _userManager.CreateAsync(user, dto.Password);
 
+            if (result.Succeeded)
+            {
+                await _userManager.AddToRoleAsync(user, dto.Role);
+                _logger.LogInformation($"User {dto.Username} registered with role {dto.Role}.");
+                return RedirectToAction("Index", "Dashboard");
+            }
 
+            foreach (var error in result.Errors)
+            {
+                ModelState.AddModelError("", error.Description);
+            }
+            return View(dto);
+        }
+    }
+}
