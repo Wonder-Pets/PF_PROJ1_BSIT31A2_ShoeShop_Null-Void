@@ -1,99 +1,79 @@
 ﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
-using ShoeShop.Services.Interfaces;
-using ShoeShop.Services.DTOs;
 using System;
 using System.Threading.Tasks;
 
-namespace ShoeShop.Controllers
+namespace ShoeShop.Web.Controllers
 {
     [Authorize(Roles = "Admin,Manager")]
     public class PurchaseOrderController : Controller
     {
-        private readonly IPurchaseOrderService _orderService;
+        private readonly IPurchaseOrderService _poService;
         private readonly ILogger<PurchaseOrderController> _logger;
-        private readonly IAuditService _auditService;
 
-        public PurchaseOrderController(IPurchaseOrderService orderService, ILogger<PurchaseOrderController> logger, IAuditService auditService)
+        public PurchaseOrderController(IPurchaseOrderService poService, ILogger<PurchaseOrderController> logger)
         {
-            _orderService = orderService;
+            _poService = poService;
             _logger = logger;
-            _auditService = auditService;
         }
 
-        public async Task<IActionResult> Index()
+        // GET: /PurchaseOrder
+        public async Task<IActionResult> Index(string status = null, int page = 1)
         {
-            var orders = await _orderService.GetAllOrdersAsync();
-            return View(orders);
+            var model = await _poService.GetPagedPurchaseOrdersAsync(status, page, 20);
+            return View(model);
         }
 
-        public IActionResult Create()
+        // GET: /PurchaseOrder/Create
+        public async Task<IActionResult> Create()
         {
-            return View();
+            var vm = await _poService.GetCreatePurchaseOrderViewModelAsync();
+            return View(vm);
         }
 
+        // POST: /PurchaseOrder/Create
         [HttpPost]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Create(CreatePurchaseOrderDto dto)
         {
-            if (!ModelState.IsValid)
-                return View(dto);
+            if (!ModelState.IsValid) return View(dto);
 
             try
             {
-                await _orderService.CreatePurchaseOrderAsync(dto);
-                await _auditService.LogAsync(User.Identity.Name, "Created purchase order", dto.OrderNumber);
-
-                return RedirectToAction("Index");
+                PurchaseOrderDto po = await _poService.CreatePurchaseOrderAsync(dto, User.Identity.Name);
+                TempData["Success"] = $"Purchase Order {po.OrderNumber} created.";
+                return RedirectToAction(nameof(Details), new { id = po.Id });
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error creating purchase order");
-                ModelState.AddModelError("", "Failed to create purchase order.");
+                _logger.LogError(ex, "Create PO failed");
+                ModelState.AddModelError("", "Error sa pag-create ng purchase order.");
                 return View(dto);
             }
         }
 
+        // GET: /PurchaseOrder/Details/{id}
+        public async Task<IActionResult> Details(int id)
+        {
+            var model = await _poService.GetPurchaseOrderByIdAsync(id);
+            if (model == null) return NotFound();
+            return View(model);
+        }
+
+        // POST: /PurchaseOrder/Confirm/{id}
+        [HttpPost]
+        [ValidateAntiForgeryToken]
         public async Task<IActionResult> Confirm(int id)
         {
             try
             {
-                await _orderService.ConfirmOrderAsync(id);
-                await _auditService.LogAsync(User.Identity.Name, "Confirmed purchase order", id.ToString());
+                await _poService.ConfirmPurchaseOrderAsync(id, User.Identity.Name);
+                TempData["Success"] = "PO confirmed.";
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, $"Error confirming purchase order {id}");
-                TempData["Error"] = "Failed to confirm purchase order.";
+                _logger.LogError(ex, "Confirm PO failed for {Id}", id);
+                TempData["Error"] = "Hindi ma-confirm ang PO.";
             }
-
-            return RedirectToAction("Index");
-        }
-
-        public async Task<IActionResult> Receive(int id)
-        {
-            try
-            {
-                await _orderService.ReceiveOrderAsync(id);
-                await _auditService.LogAsync(User.Identity.Name, "Received purchase order", id.ToString());
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, $"Error receiving purchase order {id}");
-                TempData["Error"] = "Failed to receive purchase order.";
-            }
-
-            return RedirectToAction("Index");
-        }
-
-        public async Task<IActionResult> Details(int id)
-        {
-            var order = await _orderService.GetOrderByIdAsync(id);
-            if (order == null)
-                return NotFound();
-
-            return View(order);
-        }
-    }
-}
+            return RedirectToAction

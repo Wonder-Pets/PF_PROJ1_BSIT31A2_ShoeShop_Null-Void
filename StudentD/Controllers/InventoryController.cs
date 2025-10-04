@@ -1,169 +1,172 @@
 ﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
-using ShoeShop.Services.Interfaces;
-using ShoeShop.Services.DTOs;
-using Microsoft.AspNetCore.Http;
 using System;
 using System.Threading.Tasks;
 
-namespace ShoeShop.Controllers
+namespace ShoeShop.Web.Controllers
 {
     [Authorize(Roles = "Admin,Manager")]
     public class InventoryController : Controller
     {
         private readonly IInventoryService _inventoryService;
         private readonly ILogger<InventoryController> _logger;
-        private readonly IAuditService _auditService; // Placeholder for audit logging
 
-        public InventoryController(IInventoryService inventoryService, ILogger<InventoryController> logger, IAuditService auditService)
+        public InventoryController(IInventoryService inventoryService, ILogger<InventoryController> logger)
         {
             _inventoryService = inventoryService;
             _logger = logger;
-            _auditService = auditService;
         }
 
-        public async Task<IActionResult> Index()
+        // GET: /Inventory
+        public async Task<IActionResult> Index(int page = 1, string search = null)
         {
-            var items = await _inventoryService.GetAllShoesAsync();
-            return View(items);
+            var model = await _inventoryService.GetPagedShoesAsync(page, 20, search);
+            return View(model);
         }
 
+        // GET: /Inventory/Create
         public IActionResult Create()
         {
-            return View();
+            // View will render form bound to CreateShoeDto
+            return View(new CreateShoeDto());
         }
 
+        // POST: /Inventory/Create
         [HttpPost]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Create(CreateShoeDto dto)
         {
-            if (!ModelState.IsValid)
-                return View(dto);
+            if (!ModelState.IsValid) return View(dto);
 
             try
             {
-                await _inventoryService.AddShoeAsync(dto);
-
-                // Audit log
-                await _auditService.LogAsync(User.Identity.Name, "Created new shoe", dto.Name);
-
-                TempData["Success"] = "Shoe added successfully.";
-                return RedirectToAction("Index");
+                ShoeDto created = await _inventoryService.CreateShoeAsync(dto);
+                TempData["Success"] = "Nagawa ang bagong shoe.";
+                return RedirectToAction(nameof(Edit), new { id = created.Id });
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error creating shoe");
-                ModelState.AddModelError("", "An unexpected error occurred while adding the shoe.");
+                _logger.LogError(ex, "Create shoe failed");
+                ModelState.AddModelError("", "May nangyaring error sa pag-save. Tingnan ang logs.");
                 return View(dto);
             }
         }
 
+        // GET: /Inventory/Edit/{id}
         public async Task<IActionResult> Edit(int id)
         {
-            var shoe = await _inventoryService.GetShoeByIdAsync(id);
-            if (shoe == null)
-                return NotFound();
-
-            return View(shoe);
+            var model = await _inventoryService.GetShoeForEditAsync(id);
+            if (model == null) return NotFound();
+            return View(model);
         }
 
+        // POST: /Inventory/Edit/{id}
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public async Task<IActionResult> Edit(ShoeDto dto)
+        public async Task<IActionResult> Edit(int id, UpdateShoeDto dto)
         {
-            if (!ModelState.IsValid)
-                return View(dto);
+            if (id != dto.Id) return BadRequest();
+            if (!ModelState.IsValid) return View(dto);
 
             try
             {
                 await _inventoryService.UpdateShoeAsync(dto);
-
-                await _auditService.LogAsync(User.Identity.Name, "Updated shoe", dto.Id.ToString());
-
-                return RedirectToAction("Index");
+                TempData["Success"] = "Na-update ang detalye ng sapatos.";
+                return RedirectToAction(nameof(Index));
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, $"Error updating shoe ID {dto.Id}");
-                ModelState.AddModelError("", "Failed to update shoe.");
+                _logger.LogError(ex, "Update shoe failed for id {Id}", id);
+                ModelState.AddModelError("", "May problema sa pag-update.");
                 return View(dto);
             }
         }
 
-        public async Task<IActionResult> AdjustStock(int id)
-        {
-            var shoe = await _inventoryService.GetStockAdjustmentInfoAsync(id);
-            if (shoe == null)
-                return NotFound();
-
-            return View(shoe);
-        }
-
+        // POST: /Inventory/Delete/{id}
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public async Task<IActionResult> AdjustStock(StockAdjustmentDto dto)
+        public async Task<IActionResult> Delete(int id)
+        {
+            try
+            {
+                await _inventoryService.DeleteShoeAsync(id);
+                TempData["Success"] = "Tinanggal ang shoe.";
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Delete shoe failed for id {Id}", id);
+                TempData["Error"] = "Hindi ma-delete ang shoe. Baka ginamit pa sa ibang talaan.";
+            }
+            return RedirectToAction(nameof(Index));
+        }
+
+        // POST: /Inventory/AdjustStock
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> AdjustStock(AdjustStockDto dto)
         {
             if (!ModelState.IsValid)
-                return View(dto);
+            {
+                TempData["Error"] = "May kulang o maling input sa stock adjustment.";
+                return RedirectToAction(nameof(Edit), new { id = dto.ShoeId });
+            }
 
             try
             {
-                await _inventoryService.AdjustStockAsync(dto);
-
-                await _auditService.LogAsync(User.Identity.Name, "Adjusted stock", $"ShoeId: {dto.ShoeId}, Qty: {dto.AdjustQuantity}");
-
-                return RedirectToAction("Index");
+                // Pass current user for audit trail
+                await _inventoryService.AdjustStockAsync(dto, User.Identity.Name);
+                TempData["Success"] = "Naayos ang stock.";
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, $"Error adjusting stock for shoe ID {dto.ShoeId}");
-                ModelState.AddModelError("", "Failed to adjust stock.");
-                return View(dto);
+                _logger.LogError(ex, "Adjust stock failed");
+                TempData["Error"] = "Error sa pag-adjust ng stock.";
             }
+
+            return RedirectToAction(nameof(Edit), new { id = dto.ShoeId });
         }
 
+        // POST: /Inventory/UploadImage/{shoeId}
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public async Task<IActionResult> UploadImage(int id, IFormFile image)
+        public async Task<IActionResult> UploadImage(int shoeId, IFormFile image)
         {
-            if (image == null || image.Length == 0)
+            if (image == null)
             {
-                TempData["Error"] = "Please select a valid image file.";
-                return RedirectToAction("Edit", new { id });
-            }
-
-            // Validate file type (basic example)
-            var permittedExtensions = new[] { ".jpg", ".jpeg", ".png", ".gif" };
-            var ext = System.IO.Path.GetExtension(image.FileName).ToLowerInvariant();
-
-            if (string.IsNullOrEmpty(ext) || Array.IndexOf(permittedExtensions, ext) < 0)
-            {
-                TempData["Error"] = "Unsupported image format.";
-                return RedirectToAction("Edit", new { id });
+                TempData["Error"] = "Walang napiling image.";
+                return RedirectToAction(nameof(Edit), new { id = shoeId });
             }
 
             try
             {
-                await _inventoryService.UploadShoeImageAsync(id, image);
-
-                await _auditService.LogAsync(User.Identity.Name, "Uploaded shoe image", $"ShoeId: {id}");
-
-                TempData["Success"] = "Image uploaded successfully.";
+                // Service handles saving and validation
+                string imageUrl = await _inventoryService.UploadShoeImageAsync(shoeId, image, User.Identity.Name);
+                TempData["Success"] = "Larawan na-upload.";
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, $"Error uploading image for shoe ID {id}");
-                TempData["Error"] = "Failed to upload image.";
+                _logger.LogError(ex, "Upload image failed for shoe {Id}", shoeId);
+                TempData["Error"] = "Hindi ma-upload ang larawan.";
             }
 
-            return RedirectToAction("Edit", new { id });
+            return RedirectToAction(nameof(Edit), new { id = shoeId });
         }
 
-        public async Task<IActionResult> ViewColors(int shoeId)
+        // AJAX: GET stock quantity for a variation
+        [HttpGet]
+        public async Task<IActionResult> GetStock(int variationId)
         {
-            var colors = await _inventoryService.GetColorVariationsAsync(shoeId);
-            return View(colors);
-        }
-    }
-}
+            try
+            {
+                int qty = await _inventoryService.GetStockQuantityAsync(variationId);
+                return Json(new { success = true, variationId, qty });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "GetStock failed for variation {VariationId}", variationId);
+                return Json(new
+                {
+                    success = false,
+                    error = "Hindi ma-retrieve ang stock

@@ -1,12 +1,12 @@
 ﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
-using ShoeShop.Services.Interfaces;
+using System;
 using System.Threading.Tasks;
 
-namespace ShoeShop.Controllers
+namespace ShoeShop.Web.Controllers
 {
-    [Authorize]
+    [Authorize(Roles = "Admin,Manager,Staff")]
     public class DashboardController : Controller
     {
         private readonly IReportService _reportService;
@@ -18,40 +18,37 @@ namespace ShoeShop.Controllers
             _logger = logger;
         }
 
+        // GET: /Dashboard
         public async Task<IActionResult> Index()
         {
-            var report = await _reportService.GetDashboardReportAsync();
-            return View(report);
-        }
-
-        [HttpGet]
-        public async Task<IActionResult> GetLowStock()
-        {
             try
             {
-                var lowStock = await _reportService.GetLowStockItemsAsync();
-                return Json(lowStock);
+                // InventoryReportDto: totals, lowStockList, recentTransactions, inventoryValue
+                InventoryReportDto model = await _reportService.GetDashboardReportAsync();
+                return View(model);
             }
-            catch (System.Exception ex)
+            catch (Exception ex)
             {
-                _logger.LogError(ex, "Error fetching low stock items");
-                return StatusCode(500, "Error retrieving data");
+                _logger.LogError(ex, "Error loading dashboard");
+                TempData["Error"] = "May error habang kino-load ang dashboard.";
+                return View(new InventoryReportDto()); // fallback model
             }
         }
 
+        // AJAX endpoint: partial low stock widget (polling)
         [HttpGet]
-        public async Task<IActionResult> GetRecentActivity()
+        public async Task<IActionResult> LowStockWidget()
         {
-            try
-            {
-                var logs = await _reportService.GetRecentInventoryActivityAsync();
-                return Json(logs);
-            }
-            catch (System.Exception ex)
-            {
-                _logger.LogError(ex, "Error fetching recent activity logs");
-                return StatusCode(500, "Error retrieving data");
-            }
+            var lowStock = await _reportService.GetLowStockAsync();
+            return PartialView("_LowStockWidget", lowStock);
+        }
+
+        // AJAX JSON: quick totals (for mobile dashboard)
+        [HttpGet]
+        public async Task<IActionResult> QuickTotals()
+        {
+            var totals = await _reportService.GetQuickTotalsAsync();
+            return Json(totals);
         }
     }
 }
