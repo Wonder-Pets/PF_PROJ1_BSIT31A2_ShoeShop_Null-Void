@@ -1,8 +1,10 @@
 ﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging;
 using ShoeShop.Services.Interfaces;
 using ShoeShop.Services.DTOs;
 using System;
+using System.Threading.Tasks;
 
 namespace ShoeShop.Controllers
 {
@@ -10,15 +12,19 @@ namespace ShoeShop.Controllers
     public class PullOutController : Controller
     {
         private readonly IPullOutService _pullOutService;
+        private readonly ILogger<PullOutController> _logger;
+        private readonly IAuditService _auditService;
 
-        public PullOutController(IPullOutService pullOutService)
+        public PullOutController(IPullOutService pullOutService, ILogger<PullOutController> logger, IAuditService auditService)
         {
             _pullOutService = pullOutService;
+            _logger = logger;
+            _auditService = auditService;
         }
 
-        public IActionResult Index()
+        public async Task<IActionResult> Index()
         {
-            var requests = _pullOutService.GetAllPullOutRequests();
+            var requests = await _pullOutService.GetAllPullOutRequestsAsync();
             return View(requests);
         }
 
@@ -29,32 +35,66 @@ namespace ShoeShop.Controllers
 
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public IActionResult Request(CreatePullOutDto dto)
+        public async Task<IActionResult> Request(CreatePullOutDto dto)
         {
             if (!ModelState.IsValid)
                 return View(dto);
 
-            _pullOutService.RequestPullOut(dto);
+            try
+            {
+                await _pullOutService.RequestPullOutAsync(dto);
+                await _auditService.LogAsync(User.Identity.Name, "Requested pull out", dto.ShoeId.ToString());
+
+                return RedirectToAction("Index");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error requesting pull out");
+                ModelState.AddModelError("", "Failed to submit pull out request.");
+                return View(dto);
+            }
+        }
+
+        [Authorize(Roles = "Manager")]
+        public async Task<IActionResult> Approve(int id)
+        {
+            try
+            {
+                await _pullOutService.ApprovePullOutAsync(id, User.Identity.Name);
+                await _auditService.LogAsync(User.Identity.Name, "Approved pull out", id.ToString());
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"Error approving pull out {id}");
+                TempData["Error"] = "Failed to approve pull out request.";
+            }
+
             return RedirectToAction("Index");
         }
 
         [Authorize(Roles = "Manager")]
-        public IActionResult Approve(int id)
+        public async Task<IActionResult> Reject(int id)
         {
-            _pullOutService.ApprovePullOut(id, User.Identity.Name);
+            try
+            {
+                await _pullOutService.RejectPullOutAsync(id, User.Identity.Name);
+                await _auditService.LogAsync(User.Identity.Name, "Rejected pull out", id.ToString());
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"Error rejecting pull out {id}");
+                TempData["Error"] = "Failed to reject pull out request.";
+            }
+
             return RedirectToAction("Index");
         }
 
-        [Authorize(Roles = "Manager")]
-        public IActionResult Reject(int id)
+        public async Task<IActionResult> Details(int id)
         {
-            _pullOutService.RejectPullOut(id, User.Identity.Name);
-            return RedirectToAction("Index");
-        }
+            var request = await _pullOutService.GetPullOutByIdAsync(id);
+            if (request == null)
+                return NotFound();
 
-        public IActionResult Details(int id)
-        {
-            var request = _pullOutService.GetPullOutById(id);
             return View(request);
         }
     }
